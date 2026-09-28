@@ -1,0 +1,24 @@
+# orca.yaml - 团队共享的工作树生命周期脚本
+scripts:
+  # 设置脚本：每次在 Orca 中创建/切出新工作树时自动运行
+  setup: |
+    echo "🔍 正在运行工作树初始化挂钩..."
+    TARGET_BRANCH="${ORCA_BRANCH:-main}"
+    
+    if [ "$TARGET_BRANCH" != "main" ]; then
+        echo "🌿 当前是新分支 [$TARGET_BRANCH]，正在确保代码是最新的..."
+        # 自动帮你把主分支最新的变更 rebase 过来，保证你开的分支永远处于最新状态
+        git checkout main 2>/dev/null
+        git pull origin main --rebase 2>/dev/null || true
+        git checkout "$TARGET_BRANCH" 2>/dev/null
+    fi
+    
+    # 统一确保远程上游分支建立成功
+    git push -u origin "$TARGET_BRANCH" 2>/dev/null || true
+    echo "✅ 分支同步与上游绑定全部搞定！"
+
+# 可选：让 Orca 自动为你跨工作树共享重型依赖，避免每次新建都下载
+# worktree:
+#   sharedDirectories:
+#     - node_modules
+#     - .venv
