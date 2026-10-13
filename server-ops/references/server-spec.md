@@ -1,39 +1,44 @@
-# Server Specification
+# Business Server Specification
 
-## Hardware
+## Host
 
 | Property | Value |
 |----------|-------|
-| IP | 64.90.11.148 |
-| SSH Alias | `cee-server` |
-| Hostname | s877287 |
-| OS | Ubuntu 22.04.5 LTS |
-| Kernel | Linux 5.15.0-161-generic x86_64 |
-| CPU | Intel Xeon Platinum, 2 cores |
-| RAM | 7.6 GiB |
-| Disk | 39G total (`/dev/vda1`) |
-| Docker | v29.1.3 |
-| Swap | None configured |
+| IP | 64.90.13.82 |
+| SSH Alias | `cee-server` (legacy alias; resolves to `lackeys-server`) |
+| Canonical SSH Host | `lackeys-server` |
+| Business User | `cee` |
+| Hostname | ser978034649211 |
+| OS | Ubuntu 24.04 amd64 |
+
+The former `cee-server` machine has been decommissioned. Business workloads now run on `lackeys-server`; use the `cee` account for business operations. The `lackeys` account remains reserved for the dedicated Agent runtime.
 
 ## SSH Config
 
+Preferred entry:
+
 ```
-Host cee-server
-  HostName 64.90.11.148
+Host lackeys-server
+  HostName 64.90.13.82
   User cee
   ProxyCommand none
 ```
 
-## sudo Workaround
+The existing `cee-server` alias should point to the same host and use the business user:
 
-`cee` has sudo and passwordless sudo access is configured. Non-interactive SSH commands with sudo work normally.
-For example: `ssh cee-server "sudo ufw status"`
+```
+Host cee-server
+  HostName 64.90.13.82
+  User cee
+  ProxyCommand none
+```
 
-## Firewall (ufw)
+Authentication is configured for the local SSH identity on the remote `cee` account; both aliases are ready for business operations.
 
-Status: Currently inactive.
+## sudo and firewall
 
-## Domain
+The `cee` account uses the server's authorized sudo workflow. Verify the current sudo policy before non-interactive commands. The host firewall allows SSH, HTTP, and HTTPS; application and database ports must remain private.
 
-`ceee.cloud` — Cloudflare DNS, proxied (orange cloud), SSL mode = Flexible.
-Server IP hidden behind Cloudflare; direct IP access to internal ports blocked.
+## Paths and ownership
+
+Business project paths use `/home/cee/`. Dedicated Agent paths use `/home/lackeys/`. Keep the two users' credentials, data, backups, and runtime ownership separate.

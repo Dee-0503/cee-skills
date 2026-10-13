@@ -1,32 +1,33 @@
 ---
 name: server-ops
-description: "Use when operating the shared business server `cee-server` (`64.90.11.148`) or the dedicated Agent server `lackeys-server` (`64.90.13.82`) for an authorized project. Covers project-local deployment, restart, health checks, disk checks, and related reverse-proxy work. Keep the two server scopes separate and do not operate on unrelated projects, containers, processes, domains, or host configuration."
+description: "Use when operating business projects as `cee` or the dedicated Agent runtime as `lackeys` on `lackeys-server` (`64.90.13.82`) for an authorized project. Covers project-local deployment, restart, health checks, disk checks, and related reverse-proxy work. Keep the two server scopes separate and do not operate on unrelated projects, containers, processes, domains, or host configuration."
 ---
 
 # Server Operations
 
-Operational reference for the shared business server `cee-server` (`64.90.11.148`) and the dedicated Agent server `lackeys-server` (`64.90.13.82`). Bundled automation scripts currently target `cee-server` only.
+Operational reference for business operations on `lackeys-server` (`64.90.13.82`) and the dedicated Agent runtime on the same host. The legacy `cee-server` alias now resolves to this host with the `cee` business user.
 
 ## Server roles
 
-- `cee-server` (`64.90.11.148`): shared business server. The `cee` user owns project-scoped operations under `/home/cee/`; preserve unrelated users, projects, databases, Codex/cc-switch installations, and Orca runtime.
-- `lackeys-server` (`64.90.13.82`): dedicated Agent server. The `lackeys` user owns the cee-lackeys Agent runtime and its data under `/home/lackeys/`; this is the only host intended for the migrated Agent stack.
+- `lackeys-server` (`64.90.13.82`): current host. The `cee` user owns business project operations under `/home/cee/`.
+- `lackeys-server` (`64.90.13.82`): the `lackeys` user owns the dedicated Agent runtime under `/home/lackeys/`.
 
-The hosts use different operating models. On `cee-server`, Docker and service operations require the existing `cee` sudo workflow and must target a verified project Compose file. On `lackeys-server`, system bootstrap and service administration are root/sudo operations, while Agent runtime data is owned by `lackeys`; do not add `lackeys` to the Docker group. Use separate paths, credentials, backups, and rollback records for each host. Never treat a path copied from one host as authorization to inspect the other host.
+Keep the two users' paths, credentials, backups, and runtime ownership separate. Business Docker and service operations run as `cee` and must target a verified project Compose file; do not add `lackeys` to the Docker group.
 
 ## Connection
 
 ```
-ssh cee-server
 ssh lackeys-server
+ssh cee-server  # legacy alias, configured with User cee
 ```
-- `cee-server`: user `cee`, key auth via `~/.ssh/config`
-- `lackeys-server`: user `lackeys`, key auth via `~/.ssh/config`; root SSH is disabled after bootstrap
+- `lackeys-server`: canonical host; choose `User cee` for business or `User lackeys` for Agent operations.
+- `cee-server`: legacy alias for `lackeys-server`, configured with `User cee`.
+- SSH public-key authentication for the remote `cee` account is configured and ready for business SSH operations.
 - On `lackeys-server`, Nginx uses Certbot's root-owned `certbot.timer` for twice-daily renewal attempts. A certificate must be issued for the domain first; `certbot renew` does not create a new certificate. Run renewal checks with `sudo`, validate with `sudo nginx -t`, and reload Nginx only after a successful configuration check.
 - Docker access is executed through authorized `sudo`; do not enumerate host-wide containers. All Compose commands must target the verified project file.
-- `cee-server` sudo is passwordless. `lackeys-server` sudo requires the user-provided password; use an interactive prompt or protected stdin, never store passwords in this skill or source control.
-- New dedicated-server production directories use `/home/lackeys/apps/{cee-lackeys,cumora,cumora-byoa,codex,cc-switch}` and `/home/lackeys/data/{cumora,codex,cc-switch,cee-wiki}` without `pilot`. Source paths on cee-server retain their existing names.
-- For dedicated-server status and bootstrap details read [references/lackeys-server.md](references/lackeys-server.md). Existing helper scripts and `/home/cee/` examples below target the shared server; inspect their path and sudo assumptions before adapting them.
+- `lackeys-server` sudo policy depends on the active account and requires verification; use an interactive prompt or protected stdin, never store passwords in this skill or source control.
+- New dedicated-server production directories use `/home/lackeys/apps/{cee-lackeys,cumora,cumora-byoa,codex,cc-switch}` and `/home/lackeys/data/{cumora,codex,cc-switch,cee-wiki}` without `pilot`. Business source paths use `/home/cee/`; Agent paths use `/home/lackeys/`.
+- For host status and bootstrap details read [references/lackeys-server.md](references/lackeys-server.md). Helper scripts and `/home/cee/` examples below target business operations as `cee`; inspect their sudo assumptions before adapting them.
 
 ## Quick Status Check
 
@@ -35,7 +36,7 @@ Resolve local script paths from the directory containing the currently loaded `S
 Status checks must be scoped to a verified project. Pass the canonical project directory and, when needed, its Compose file:
 
 ```bash
-ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/server-status.sh"
+ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/server-status.sh"
 ```
 
 ## Conversation Authorization
@@ -61,7 +62,7 @@ Report project deployment and domain cutover as separate states: project deploym
 List services only from the verified project's Compose file:
 
 ```bash
-ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/docker-services.sh"
+ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/docker-services.sh"
 ```
 
 Never enumerate all host containers or restart a container by guessed name. Use only services declared by the verified Compose file.
@@ -71,7 +72,7 @@ Never enumerate all host containers or restart a container by guessed name. Use 
 Check published ports only from the verified project's Compose file:
 
 ```bash
-ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/port-check.sh"
+ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/port-check.sh"
 ```
 
 ### Nginx Domain Mappings
@@ -79,8 +80,8 @@ ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' 
 Nginx reverse-proxy inspection is authorized only after the project, domain, and matching configuration file have been identified. Read only that file, then validate the complete Nginx configuration before reload:
 
 ```bash
-ssh cee-server 'bash -s -- /etc/nginx/sites-enabled/<project>.conf' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/nginx-domains.sh"
-ssh cee-server 'sudo nginx -t'
+ssh lackeys-server 'bash -s -- /etc/nginx/sites-enabled/<project>.conf' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/nginx-domains.sh"
+ssh lackeys-server 'sudo nginx -t'
 ```
 
 Use the actual verified configuration path and domain; do not use `nginx -T` for routine inspection because it expands unrelated host configuration. Do not use a guessed domain or alter unrelated server blocks.
@@ -90,7 +91,7 @@ Use the actual verified configuration path and domain; do not use `nginx -T` for
 Firewall state may be inspected when relevant to the named project deployment:
 
 ```bash
-ssh cee-server 'sudo ufw status numbered'
+ssh lackeys-server 'sudo ufw status numbered'
 ```
 
 Do not add, remove, or alter UFW rules based only on a general deployment request. If a firewall change is required, request explicit approval for the exact port, protocol, direction, and rule scope. Docker ports bound to `127.0.0.1` to bypass Docker's iptables override of ufw. Public-facing ports must be explicitly allowed in ufw.
@@ -130,13 +131,13 @@ Host cron script runs every 3 minutes:
 - **`references/server-spec.md`** — Hardware specs, OS, firewall rules, sudo workaround, SSH legacy entries
 
 ## ⚠️ CRITICAL SECURITY WARNING
-**The cee-server (64.90.11.148) is a SHARED machine; lackeys-server (64.90.13.82) is the dedicated Agent machine.**
+**`lackeys-server` (64.90.13.82) is the current host. Business operations use `cee`; the dedicated Agent runtime uses `lackeys`. The former `cee-server` host is decommissioned.**
 
-The user has authorized us to operate on `/home/cee/` projects and the related Nginx reverse-proxy and certificate configuration for explicitly named project domains. All unrelated projects, processes, containers, domains, certificates, and host configuration remain out of scope.
+The user has authorized us to operate on explicitly named business projects under `/home/cee/` and their related Nginx reverse-proxy and certificate configuration. All unrelated projects, processes, containers, domains, certificates, and host configuration remain out of scope.
 
 **Rules:**
-1. Verify the target host before every operation: `/home/cee/` project paths belong to `cee-server`; `/home/lackeys/` Agent paths belong to `lackeys-server`.
+1. Verify the target host before every operation: `/home/cee/` business project paths and `/home/lackeys/` Agent paths belong to `lackeys-server`, but remain separate by user and scope.
 2. Restrict Docker operations to services declared by that host's verified Compose file.
 3. Restrict Nginx and certificate work to the explicitly named project's matching domain/server block and certificate lineage.
-4. Preserve the shared server's Codex, cc-switch, and Orca resources; do not grant the dedicated Agent host access to `/home/orca`.
+4. Preserve unrelated users, projects, and host resources; do not grant either account access outside its authorized scope.
 5. Do not inspect, modify, restart, or delete unrelated resources.
