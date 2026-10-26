@@ -1,143 +1,86 @@
 ---
 name: server-ops
-description: "Use when operating business projects as `cee` or the dedicated Agent runtime as `lackeys` on `lackeys-server` (`64.90.13.82`) for an authorized project. Covers project-local deployment, restart, health checks, disk checks, and related reverse-proxy work. Keep the two server scopes separate and do not operate on unrelated projects, containers, processes, domains, or host configuration."
+description: "Operate authorized projects on the shared server (64.90.13.184): use SSH alias cee-server for business projects as cee, or lackeys-server for the dedicated Agent runtime as lackeys. Covers deployment, restart, health and disk checks, and project-related Nginx and certificates."
 ---
 
 # Server Operations
 
-Operational reference for business operations on `lackeys-server` (`64.90.13.82`) and the dedicated Agent runtime on the same host. The legacy `cee-server` alias now resolves to this host with the `cee` business user.
+## Select the account and project
 
-## Server roles
+Both SSH aliases connect to the **same machine**, currently `64.90.13.184`:
 
-- `lackeys-server` (`64.90.13.82`): current host. The `cee` user owns business project operations under `/home/cee/`.
-- `lackeys-server` (`64.90.13.82`): the `lackeys` user owns the dedicated Agent runtime under `/home/lackeys/`.
-
-Keep the two users' paths, credentials, backups, and runtime ownership separate. Business Docker and service operations run as `cee` and must target a verified project Compose file; do not add `lackeys` to the Docker group.
-
-## Connection
-
-```
-ssh lackeys-server
-ssh cee-server  # legacy alias, configured with User cee
-```
-- `lackeys-server`: canonical host; choose `User cee` for business or `User lackeys` for Agent operations.
-- `cee-server`: legacy alias for `lackeys-server`, configured with `User cee`.
-- SSH public-key authentication for the remote `cee` account is configured and ready for business SSH operations.
-- On `lackeys-server`, Nginx uses Certbot's root-owned `certbot.timer` for twice-daily renewal attempts. A certificate must be issued for the domain first; `certbot renew` does not create a new certificate. Run renewal checks with `sudo`, validate with `sudo nginx -t`, and reload Nginx only after a successful configuration check.
-- Docker access is executed through authorized `sudo`; do not enumerate host-wide containers. All Compose commands must target the verified project file.
-- `lackeys-server` sudo policy depends on the active account and requires verification; use an interactive prompt or protected stdin, never store passwords in this skill or source control.
-- New dedicated-server production directories use `/home/lackeys/apps/{cee-lackeys,cumora,cumora-byoa,codex,cc-switch}` and `/home/lackeys/data/{cumora,codex,cc-switch,cee-wiki}` without `pilot`. Business source paths use `/home/cee/`; Agent paths use `/home/lackeys/`.
-- For host status and bootstrap details read [references/lackeys-server.md](references/lackeys-server.md). Helper scripts and `/home/cee/` examples below target business operations as `cee`; inspect their sudo assumptions before adapting them.
-
-## Quick Status Check
-
-Resolve local script paths from the directory containing the currently loaded `SKILL.md`, not from a fixed installation path or the project's working directory. Set `SERVER_OPS_SKILL_DIR` to that directory's absolute path before running the examples below; keep it quoted to support paths containing spaces. This variable is local and is not a remote project path.
-
-Status checks must be scoped to a verified project. Pass the canonical project directory and, when needed, its Compose file:
-
-```bash
-ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/server-status.sh"
-```
-
-## Conversation Authorization
-
-Treat the user's request as authorization for the requested operation only when the target is within the owned scope:
-
-| User request | Default authorization | Boundary |
+| SSH alias | Remote user | Scope |
 |---|---|---|
-| Deploy, restart, inspect, or update a project under `/home/cee/` | Authorized for that project | Verify the project path and target service before acting |
-| Read or modify project-owned files, Compose files, app services, or project-local environment | Authorized when directly required by the request | Do not expand to unrelated projects, containers, or services |
-| Configure or cut over a domain | Authorized for the named project's app-side work, the related `/etc/nginx` reverse-proxy configuration, and Cloudflare work when requested | Verify the named domain and target project before changing routing |
-| Read, modify, test, reload, or restart Nginx under `/etc/nginx` | Authorized for reverse-proxy configuration required by the named project | Restrict changes to the requested project's server block and preserve unrelated configuration |
-| Reuse, renew, or repair certificates under `/etc/letsencrypt` | Authorized when required for the named domain | Prefer existing certificates and the server's existing renewal mechanism; do not add dependencies or alter unrelated certificates |
+| `cee-server` | `cee` | Business projects under `/home/cee/` |
+| `lackeys-server` | `lackeys` | Dedicated Agent runtime under `/home/lackeys/` |
 
-A request to deploy a named project authorizes the required project-local steps plus the related Nginx reverse-proxy and certificate work for that project's explicitly named domain. Do not expand the request to unrelated projects, containers, domains, certificates, or host configuration. Before acting, verify the canonical project path, Compose file, target service, domain, and matching Nginx server block. If a target cannot be tied to the named project, stop and ask for the missing identifier.
+Use `ssh cee-server` for business operations and `ssh lackeys-server` for Agent operations. Keep their credentials, paths, backups, and runtime ownership separate. Sudo access does not authorize work outside the requested project. Do not add `lackeys` to the Docker group.
 
-For certificate errors, first inspect the existing certificate lineage and renewal mechanism with `sudo`, then repair or renew in place when it belongs to the named domain. Prefer the existing certificate and built-in system tooling; do not add dependencies or change unrelated certificates. If an existing certificate is valid and reusable, retain it. After changes, validate with `sudo nginx -t`, reload only after a successful test, and verify the project-local endpoint and the named domain separately.
+Before the first remote operation in a task, check the selected alias's effective configuration locally (`ssh -G cee-server` or `ssh -G lackeys-server`; inspect `hostname`, `user`, and `port`). Then confirm remote identity with `id -un` and `hostname`. Resolve mismatches before mutations; do not rewrite SSH configuration as part of a project deployment.
 
-Report project deployment and domain cutover as separate states: project deployment succeeds when the project-local service is healthy; domain cutover succeeds only after the related Nginx, certificate, and domain path are independently verified. Never let an unrelated Nginx or certificate issue block reporting a healthy project deployment.
+Verify the canonical project directory, deployment configuration, and target service. For Compose, identify the actual Compose file(s), project name, profiles, and environment-file options used by the deployment, and retain those options throughout. Do not guess container names or enumerate host-wide containers. For non-Compose projects, identify the project-owned service or process manager before operating it.
 
-### Docker Services
+## Authorization and boundaries
 
-List services only from the verified project's Compose file:
+The requested deploy, restart, inspect, or update authorizes necessary operations for the named project in the selected account's scope. This includes project-owned files, environment, application services, and required related Nginx/certificate work for an explicitly named domain. Proceed within that scope without repeated approval.
 
-```bash
-ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/docker-services.sh"
-```
+- Restrict Docker commands to the verified project's Compose configuration and declared services. Use authorized `sudo` for business Docker operations.
+- Restrict Nginx edits to the project's matching server block and certificate work to the named domain's certificate lineage. Preserve unrelated configuration.
+- If a required project, service, or domain cannot be identified from the request and project configuration, ask for that identifier before dependent changes.
+- Do not inspect, modify, restart, or delete unrelated users, projects, containers, domains, certificates, or host configuration.
+- Follow the user's destructive-action authorization boundary. Preserve a recoverable copy before replacing configuration or data.
 
-Never enumerate all host containers or restart a container by guessed name. Use only services declared by the verified Compose file.
+Verify the active account's sudo policy before non-interactive commands. Use an interactive prompt or protected stdin when needed; never store passwords in this skill, logs, or source control. When streaming a script with `bash -s`, stdin contains the script and must not also carry a sudo password.
 
-### Port Audit
+## Deploy and verify
 
-Check published ports only from the verified project's Compose file:
+1. Inspect the project's existing deployment procedure and current state. Record enough of the current version and configuration to recover from a failed change. Read only relevant environment keys; avoid exposing secrets.
+2. Apply the requested change through the existing deployment mechanism. Validate configuration before restarting the affected service.
+3. Check the target service's health and project-local endpoint. Inspect bounded, relevant service logs if it fails. Do not repeat a failing restart without diagnosing the cause.
+4. If domain routing is part of the request, verify that domain separately after the project-local endpoint works.
 
-```bash
-ssh lackeys-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/port-check.sh"
-```
+Report deployment and domain cutover separately: a healthy local application proves deployment, while cutover requires the named domain's routing, TLS, and expected application response to be verified. Report failed or unverified parts explicitly.
 
-### Nginx Domain Mappings
+## Nginx, certificates, and firewall
 
-Nginx reverse-proxy inspection is authorized only after the project, domain, and matching configuration file have been identified. Read only that file, then validate the complete Nginx configuration before reload:
+Identify the named domain's matching Nginx configuration and upstream before editing. Read only the relevant file; avoid `nginx -T` for routine inspection because it expands unrelated configuration. Common `sites-enabled` entries are symlinks into `sites-available`; verify the resolved target belongs to the intended project.
 
-```bash
-ssh lackeys-server 'bash -s -- /etc/nginx/sites-enabled/<project>.conf' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/nginx-domains.sh"
-ssh lackeys-server 'sudo nginx -t'
-```
+After changes, run `sudo nginx -t` and reload only on success. Verify the local upstream and public domain independently.
 
-Use the actual verified configuration path and domain; do not use `nginx -T` for routine inspection because it expands unrelated host configuration. Do not use a guessed domain or alter unrelated server blocks.
+Inspect the existing certificate lineage and renewal configuration with `sudo`. Reuse a valid certificate for the named domain. Renew or repair that lineage using the existing Certbot installation; a new domain without a certificate requires issuance, because `certbot renew` cannot create one. Preserve the existing root-owned `certbot.timer` and unrelated certificates. Read [host details](references/lackeys-server.md) when certificate or bootstrap context is needed; recorded versions and health results are historical and require live verification when relevant.
 
-### Firewall
+Inspect `sudo ufw status numbered` when relevant. A general deployment request does not authorize host firewall changes; obtain authorization for the exact port, protocol, direction, and scope if needed. Bind private application/database ports to loopback or an appropriate private network. Docker-published ports can bypass UFW filtering, so verify the actual bind address rather than relying on UFW alone.
 
-Firewall state may be inspected when relevant to the named project deployment:
+## Project-scoped helper scripts
 
-```bash
-ssh lackeys-server 'sudo ufw status numbered'
-```
+These read-only helpers target **business projects as `cee`** and a single Compose file. Use the project's existing commands directly for multi-file Compose deployments, extra deployment options, or Agent operations.
 
-Do not add, remove, or alter UFW rules based only on a general deployment request. If a firewall change is required, request explicit approval for the exact port, protocol, direction, and rule scope. Docker ports bound to `127.0.0.1` to bypass Docker's iptables override of ufw. Public-facing ports must be explicitly allowed in ufw.
-
-## Domain / Nginx Notes
-
-This skill is a server operations guide, not a source of truth for which product owns which domain.
-
-Use the domain explicitly provided by the user, verify that its Nginx server block points to the verified project's endpoint, and run `sudo nginx -t` before any reload. Reuse the existing certificate when it matches the named domain; otherwise use the server's existing renewal mechanism and do not add dependencies. Verify the project-local endpoint first, then the named domain after Nginx and certificate changes.
-
-### Cloudflare Operations
-
-For any requested Cloudflare-level operations (DNS records, SSL settings, WAF rules, Workers, Pages, Tunnel), use the **<cloudflare> plugin** through its available skills and tools. The plugin is optional and may be disabled by the user. Before depending on it, check whether the relevant capabilities are exposed in the current session; an installed plugin or a reference in this document does not establish availability, authentication, or authorization for a particular account or zone.
-
-If the required capabilities are unavailable, report that limitation without assuming the plugin was deliberately disabled. Do not enable, install, or reconfigure the plugin, search for credentials, or bypass it through direct API, CLI, or browser operations unless the user explicitly authorizes that alternative. Identify the exact pending Cloudflare operation and ask the user to enable the plugin or choose an authorized alternative only when that operation is needed to proceed. If capabilities are exposed but access fails, report the access failure rather than treating it as proof that the plugin is disabled.
-
-Continue independently authorized project-local deployment, health checks, and related Nginx/certificate work that does not depend on the pending Cloudflare operation. Keep dependent changes pending, preserve the named project/domain scope, and report server deployment and Cloudflare/domain cutover separately. Do not claim a Cloudflare change or successful cutover without verification. Server-only tasks do not require the plugin.
-
-## Watchdog
-
-Host cron script runs every 3 minutes:
-- Script: `/home/cee/scripts/goclaw-watchdog.sh`
-- Log: `/home/cee/logs/goclaw-watchdog.log` (logrotate daily, 7 days)
-- Auto-restart: 3 consecutive health failures (~9 min) → `docker compose restart`
-
-## Scripts (execute via SSH with a verified project path)
+Set `SERVER_OPS_SKILL_DIR` to the absolute directory containing the loaded `SKILL.md`, rather than the working directory or a fixed installation path. Replace example paths with verified paths.
 
 | Script | Purpose |
 |---|---|
-| `scripts/server-status.sh` | Project disk and Compose service status |
-| `scripts/docker-services.sh` | Compose services for the specified project |
-| `scripts/port-check.sh` | Published ports declared by the specified Compose project |
-| `scripts/nginx-domains.sh` | Reads the specified authorized Nginx site file only; it does not enumerate host configuration |
+| `scripts/server-status.sh` | Filesystem capacity containing the project and Compose service status; does not measure project disk usage |
+| `scripts/docker-services.sh` | Compose service status for the specified project |
+| `scripts/port-check.sh` | Published ports of running services in the specified Compose project |
+| `scripts/nginx-domains.sh` | First 240 lines of one authorized Nginx site file; does not enumerate mappings or validate configuration |
 
-## Reference Files (read when needed)
+```bash
+ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/server-status.sh"
+ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/docker-services.sh"
+ssh cee-server 'bash -s -- /home/cee/<project> /home/cee/<project>/compose.yml' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/port-check.sh"
+ssh cee-server 'bash -s -- /etc/nginx/sites-enabled/<project>.conf' < "${SERVER_OPS_SKILL_DIR:?Set to the directory containing the loaded SKILL.md}/scripts/nginx-domains.sh"
+```
 
-- **`references/server-spec.md`** — Hardware specs, OS, firewall rules, sudo workaround, SSH legacy entries
+## Cloudflare operations
 
-## ⚠️ CRITICAL SECURITY WARNING
-**`lackeys-server` (64.90.13.82) is the current host. Business operations use `cee`; the dedicated Agent runtime uses `lackeys`. The former `cee-server` host is decommissioned.**
+For requested Cloudflare DNS, SSL, WAF, Workers, Pages, or Tunnel work, prefer the available Cloudflare plugin's skills and tools. Check current capability availability and account/zone access; installation alone proves neither.
 
-The user has authorized us to operate on explicitly named business projects under `/home/cee/` and their related Nginx reverse-proxy and certificate configuration. All unrelated projects, processes, containers, domains, certificates, and host configuration remain out of scope.
+If unavailable, report the exact pending operation. Do not enable, install, reconfigure, search for credentials, or bypass the plugin through another interface without the user's authorization for that alternative. Ask for an enabled capability or authorized alternative only when required to proceed. An access failure does not prove the plugin is disabled.
 
-**Rules:**
-1. Verify the target host before every operation: `/home/cee/` business project paths and `/home/lackeys/` Agent paths belong to `lackeys-server`, but remain separate by user and scope.
-2. Restrict Docker operations to services declared by that host's verified Compose file.
-3. Restrict Nginx and certificate work to the explicitly named project's matching domain/server block and certificate lineage.
-4. Preserve unrelated users, projects, and host resources; do not grant either account access outside its authorized scope.
-5. Do not inspect, modify, restart, or delete unrelated resources.
+Continue authorized server work that does not depend on the pending operation. Report server deployment and Cloudflare/domain cutover separately, and claim completion only for verified operations. Server-only tasks do not require the plugin.
+
+## References and existing automation
+
+- [Business server specification](references/server-spec.md): SSH aliases, sudo, firewall, and path ownership.
+- [Host bootstrap details](references/lackeys-server.md): dated host inventory and Agent runtime conventions. New Agent production paths use `/home/lackeys/apps/{cee-lackeys,cumora,cumora-byoa,codex,cc-switch}` and `/home/lackeys/data/{cumora,codex,cc-switch,cee-wiki}` without `pilot`.
+- Existing GoClaw watchdog: `/home/cee/scripts/goclaw-watchdog.sh`, log `/home/cee/logs/goclaw-watchdog.log`; recorded schedule every 3 minutes, restarting after 3 consecutive health failures, with daily log rotation and 7-day retention. Inspect or change it only for a GoClaw task, and verify its current configuration before relying on these recorded settings.

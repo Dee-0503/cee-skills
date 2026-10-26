@@ -4,36 +4,32 @@
 
 | Property | Value |
 |----------|-------|
-| IP | 64.90.13.82 |
-| SSH Alias | `cee-server` (legacy alias; resolves to `lackeys-server`) |
-| Canonical SSH Host | `lackeys-server` |
+| IP | 64.90.13.184 |
+| Business SSH Alias | `cee-server` (`cee` account) |
+| Agent SSH Alias | `lackeys-server` (`lackeys` account) |
 | Business User | `cee` |
 | Hostname | ser978034649211 |
 | OS | Ubuntu 24.04 amd64 |
 
-The former `cee-server` machine has been decommissioned. Business workloads now run on `lackeys-server`; use the `cee` account for business operations. The `lackeys` account remains reserved for the dedicated Agent runtime.
+Both aliases connect to the same managed machine. Business workloads use `cee-server` and `/home/cee/`; the dedicated Agent runtime uses `lackeys-server` and `/home/lackeys/`.
 
 ## SSH Config
 
 Preferred entry:
 
 ```
-Host lackeys-server
-  HostName 64.90.13.82
-  User cee
-  ProxyCommand none
-```
-
-The existing `cee-server` alias should point to the same host and use the business user:
-
-```
 Host cee-server
-  HostName 64.90.13.82
+  HostName 64.90.13.184
   User cee
+  ProxyCommand none
+
+Host lackeys-server
+  HostName 64.90.13.184
+  User lackeys
   ProxyCommand none
 ```
 
-Authentication is configured for the local SSH identity on the remote `cee` account; both aliases are ready for business operations.
+SSH public-key authentication for the remote `cee` account is configured. Use `ssh cee-server` for business operations and `ssh lackeys-server` for Agent operations. Check the effective SSH configuration and remote identity before relying on either alias; this example documents the intended mapping and does not authorize rewriting local SSH configuration.
 
 ## sudo and firewall
 

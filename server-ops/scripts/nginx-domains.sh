@@ -12,7 +12,7 @@ CONFIG_FILE=$(realpath -e -- "$CONFIG_FILE") || {
   exit 2
 }
 case "$CONFIG_FILE" in
-  /etc/nginx/sites-enabled/*|/etc/nginx/conf.d/*) ;;
+  /etc/nginx/sites-enabled/*|/etc/nginx/sites-available/*|/etc/nginx/conf.d/*) ;;
   *) echo "configuration file must be an authorized Nginx site file: $CONFIG_FILE" >&2; exit 2 ;;
 esac
 
